@@ -88,7 +88,7 @@ func (b *contextBuilder) summarize(ctx context.Context, prior, text string) (str
 			return "", err
 		}
 		if b.calls >= 12 {
-			return "", errors.New("旁路上下文整理已达到本次处理上限，请缩小问题范围后重试")
+			return "", errors.New("side-question context processing reached this run's cap, please narrow the question scope and retry")
 		}
 		overhead := EstimateInputTokens(llm.CompletionRequest{System: []string{summaryInstruction}, Messages: []llm.Message{llm.UserText("[此前摘要]\n" + prior + "\n[新材料片段]\n")}})
 		chunkBytes := min(32000, b.window-2048-overhead-512) * 3
@@ -115,14 +115,14 @@ func (b *contextBuilder) summarize(ctx context.Context, prior, text string) (str
 			return "", ctx.Err()
 		}
 		if err != nil {
-			return "", fmt.Errorf("旁路摘要失败：%w", err)
+			return "", fmt.Errorf("side-question summary failed: %w", err)
 		}
 		result := strings.TrimSpace(msg.Text())
 		if result == "" || stop == "max_tokens" || stop == "length" || len(msg.ToolUses()) > 0 {
-			return "", errors.New("旁路摘要未完整生成，请重试")
+			return "", errors.New("side-question summary was not generated completely, please retry")
 		}
 		if EstimateInputTokens(llm.CompletionRequest{Messages: []llm.Message{llm.UserText(result)}}) > 2200 {
-			return "", errors.New("旁路摘要未缩减到预算内，请重试")
+			return "", errors.New("side-question summary did not shrink within budget, please retry")
 		}
 		prior, text = result, text[n:]
 	}
@@ -169,7 +169,7 @@ func (b *contextBuilder) loadHistory(ctx context.Context) error {
 		}
 		for _, e := range page {
 			if e.Ordinal <= after || e.Status != "completed" {
-				return errors.New("旁路历史游标无效")
+				return errors.New("side-question history cursor invalid")
 			}
 			after = e.Ordinal
 			b.recent = append(b.recent, e)
@@ -351,7 +351,7 @@ func (s SideQuestionService) Respond(ctx context.Context, snapshot Snapshot, que
 			return
 		}
 		if attempt > 0 && EstimateInputTokens(req) >= previousSize {
-			err = errors.New("旁路压缩未能进一步缩减上下文，已停止重试")
+			err = errors.New("side-question compaction could not further reduce the context, retries stopped")
 			return
 		}
 		previousSize = EstimateInputTokens(req)
