@@ -84,62 +84,63 @@ func (c emailChannel) Send(ctx context.Context, cfg map[string]any, m Message) (
 	}
 	defer client.Close()
 
-	// STARTTLS：对端支持就升级。明文会话下不能发凭据（见下面的 auth 说明）。
+	// Upgrade to STARTTLS when the server supports it. Do not send credentials over a plaintext session (see auth below).
 	if !implicitTLS {
 		if ok, _ := client.Extension("STARTTLS"); ok {
 			if err := client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
-				return 0, fmt.Errorf("STARTTLS 失败: %w", err)
+				return 0, fmt.Errorf("STARTTLS failed: %w", err)
 			}
 		}
 	}
 	if username != "" {
 		if err := client.Auth(smtp.PlainAuth("", username, password, host)); err != nil {
-			// smtp.PlainAuth 会拒绝在未加密连接上发送凭据（除非目标是 localhost）。
-			// 这是**正确**的安全行为，不能绕过，但需要把原因翻译清楚——
-			// 否则使用者只会看到「unencrypted connection」而不知道该怎么办。
+			// smtp.PlainAuth refuses to send credentials over an unencrypted connection (unless the
+			// destination is localhost). This is correct security behavior and must not be bypassed,
+			// but the error should explain how to fix it instead of only saying "unencrypted connection."
 			if strings.Contains(err.Error(), "unencrypted connection") {
-				return 0, Permanent(fmt.Errorf("拒发凭据：连接未加密。请启用 TLS，或改用 465 端口(隐式 TLS)，或把「启用 TLS」勾上 (%w)", err))
+				return 0, Permanent(fmt.Errorf("refusing to send credentials over an unencrypted connection. Enable TLS, use port 465 (implicit TLS), or check the Enable TLS option (%w)", err))
 			}
-			return 0, Permanent(fmt.Errorf("SMTP 认证失败: %w", err))
+			return 0, Permanent(fmt.Errorf("SMTP authentication failed: %w", err))
 		}
 	}
 	if err := client.Mail(from); err != nil {
-		return 0, smtpStageError(fmt.Sprintf("发件人 %s 被拒", from), err)
+		return 0, smtpStageError(fmt.Sprintf("sender %s was rejected", from), err)
 	}
 	for _, rcpt := range to {
 		if err := client.Rcpt(rcpt); err != nil {
-			return 0, smtpStageError(fmt.Sprintf("收件人 %s 被拒", rcpt), err)
+			return 0, smtpStageError(fmt.Sprintf("recipient %s was rejected", rcpt), err)
 		}
 	}
 	w, err := client.Data()
 	if err != nil {
-		return 0, fmt.Errorf("SMTP DATA 失败: %w", err)
+		return 0, fmt.Errorf("SMTP DATA failed: %w", err)
 	}
 	if _, err := w.Write([]byte(msg)); err != nil {
-		return 0, fmt.Errorf("写入邮件正文失败: %w", err)
+		return 0, fmt.Errorf("failed to write email body: %w", err)
 	}
 	if err := w.Close(); err != nil {
-		return 0, fmt.Errorf("提交邮件失败: %w", err)
+		return 0, fmt.Errorf("failed to submit email: %w", err)
 	}
-	// Quit 失败不影响「邮件已被服务器接收」这个事实，因此忽略其错误。
+	// Ignore errors from Quit; they do not change the fact that the server accepted the email.
 	_ = client.Quit()
-	// 邮件没有长度截断（HTML 正文全部发送），整批都算送达。
+	// Emails are not length-truncated (the full HTML body is sent); the whole batch counts as delivered.
 	return len(m.Items), nil
 }
 
-// emailDial 建立 SMTP 连接。
+// emailDial opens an SMTP connection.
 //
-// implicitTLS=true 走 465 这类「连上即 TLS」的方式；false 走 25/587 明文建连后再
-// STARTTLS。两者不能混：对 465 端口发明文 greeting 会被直接断开。
+// implicitTLS=true uses immediate TLS (such as port 465); false starts in plaintext on port
+// 25/587 and then upgrades with STARTTLS. Do not mix them: a plaintext greeting on port 465 is
+// immediately disconnected.
 //
-// 会话期限在**建连处**就设好（而非事后补设），因为 net/smtp 的 Client 把底层
-// 连接藏在未导出字段里，外部拿不到它；连接一旦交出去就只能靠预先设置的 deadline
-// 兜底。这也顺带覆盖了握手阶段的阻塞。
-// Control 挂 blockInternalDial 与 HTTP 系渠道共用同一道守卫。不挂的话 SMTP
-// 就是整套 SSRF 防护的缺口：host 填 169.254.169.254 或 127.0.0.1 能直接连上，
-// 而 smtp.NewClient 握手失败时会把对端返回的那一行包进错误、经 last_error
-// 由投递历史接口回显，构成半盲读原语；「连接被拒 vs 超时」的耗时差异还能
-// 用来探测端口。拨号阶段是最终生效点，也覆盖 DNS 重绑定。
+// Set the session deadline while dialing, not afterward: net/smtp.Client hides the underlying
+// connection in an unexported field, so it cannot be reached once handed off. The pre-set
+// deadline also covers a stalled handshake. Control uses the same blockInternalDial guard as
+// HTTP channels. Without it, SMTP would be an SSRF gap: a host of 169.254.169.254 or 127.0.0.1
+// could be reached directly. If smtp.NewClient's handshake failed, it would include the peer's
+// response line in the error, which last_error exposes through delivery history. Timing
+// differences between refusal and timeout could also probe ports. Dial-time checks are the
+// final enforcement point and cover DNS rebinding too.
 func emailDial(ctx context.Context, addr, host string, implicitTLS bool) (*smtp.Client, error) {
 	d := &net.Dialer{Timeout: emailDialTimeout, Control: blockInternalDial}
 	var conn net.Conn
@@ -150,28 +151,28 @@ func emailDial(ctx context.Context, addr, host string, implicitTLS bool) (*smtp.
 		conn, err = d.DialContext(ctx, "tcp", addr)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("连接 SMTP 服务器失败: %w", err)
+		return nil, fmt.Errorf("failed to connect to SMTP server: %w", err)
 	}
 	_ = conn.SetDeadline(time.Now().Add(emailSessionTimeout))
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("SMTP 握手失败: %w", err)
+		return nil, fmt.Errorf("SMTP handshake failed: %w", err)
 	}
 	return client, nil
 }
 
-// smtpStageError 按 SMTP 应答码把某个阶段的失败分成「可重试」与「永久失败」。
+// smtpStageError classifies an SMTP stage failure as retryable or permanent based on its reply code.
 //
-// 为什么必须区分：SMTP 的 4xx 与 5xx 语义完全不同——
-//   - 4xx（450 灰名单、451 本地错误、452 存储不足）是**临时**拒绝，
-//     正规做法是稍后重试；尤其是灰名单，几乎每次首次投递都会遇到。
-//   - 5xx（550 用户不存在、553 地址非法）是永久拒绝，重试没有意义。
+// This distinction matters because SMTP 4xx and 5xx have different meanings:
+//   - 4xx (450 greylisting, 451 local error, 452 insufficient storage) are temporary rejections
+//     and should be retried later. Greylisting is common on the first delivery attempt.
+//   - 5xx (550 user does not exist, 553 invalid address) are permanent rejections; retries are pointless.
 //
-// 若一律判永久失败，一个启用灰名单的邮件服务器会让**每一条**推送都在第一次
-// 尝试后落入 failed——而这类失败恰恰是自动重试最该发挥作用的场景。
-// 应答码取错误文本的前三位数字；取不到码时按可重试处理（宁可多试一次，
-// 也不要因为解析不出就把可能的瞬时故障判死）。
+// If every response were permanent, a server using greylisting would mark every notification
+// failed after the first attempt — exactly where automatic retries are useful. Read the first
+// three digits of the error text as the reply code. If no code can be parsed, treat it as retryable:
+// one extra attempt is preferable to permanently rejecting a possibly transient error.
 func smtpStageError(what string, err error) error {
 	code := smtpReplyCode(err.Error())
 	if code >= 500 && code < 600 {
@@ -180,8 +181,8 @@ func smtpStageError(what string, err error) error {
 	return fmt.Errorf("%s: %w", what, err)
 }
 
-// smtpReplyCode 从 SMTP 错误文本里取前导的三位应答码，取不到返回 0。
-// net/smtp 不导出错误码字段，只能从文本里取；格式为「450 4.7.1 ...」。
+// smtpReplyCode reads the leading three-digit reply code from SMTP error text, returning 0 if absent.
+// net/smtp does not expose a reply-code field, so parse the text (for example, "450 4.7.1 ...").
 func smtpReplyCode(text string) int {
 	if len(text) < 3 {
 		return 0
@@ -193,24 +194,24 @@ func smtpReplyCode(text string) int {
 	return n
 }
 
-// buildEmailMessage 组装完整的 RFC 5322 邮件。
+// buildEmailMessage assembles a complete RFC 5322 email.
 //
-// 正文用 base64 编码有两个原因：一是 SMTP 规定单行不超过 1000 字节，而 HTML
-// 正文（尤其汇总邮件）很容易出现超长行；二是 base64 天然不会出现以 "." 开头
-// 的行，省去 SMTP 点号转义的麻烦。
+// Base64-encode the body for two reasons: SMTP limits lines to 1,000 bytes, and HTML bodies
+// (especially digest emails) can easily exceed that; also, base64 never produces a line starting
+// with ".", avoiding SMTP dot-stuffing.
 func buildEmailMessage(from string, to []string, m Message) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", from)
 	fmt.Fprintf(&b, "To: %s\r\n", strings.Join(to, ", "))
-	// 中文主题必须做 RFC 2047 编码，否则会被客户端显示成乱码。
+	// Encode non-ASCII subjects with RFC 2047 or mail clients may display them incorrectly.
 	fmt.Fprintf(&b, "Subject: %s\r\n", mime.QEncoding.Encode("utf-8", htmlTitle(m)))
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/html; charset=\"UTF-8\"\r\n")
 	b.WriteString("Content-Transfer-Encoding: base64\r\n")
-	// 邮件没有长度硬上限，因此不截断正文。
+	// Emails have no hard length limit, so do not truncate the body.
 	b.WriteString("\r\n")
 	encoded := base64.StdEncoding.EncodeToString([]byte(htmlBody(m, 0)))
-	// base64 按 76 字符折行，符合 RFC 2045。
+	// Wrap base64 at 76 characters per line as required by RFC 2045.
 	for len(encoded) > 76 {
 		b.WriteString(encoded[:76] + "\r\n")
 		encoded = encoded[76:]

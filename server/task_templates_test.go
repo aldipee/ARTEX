@@ -121,7 +121,7 @@ func TestConversationPatchReturnsPinState(t *testing.T) {
 		t.Fatalf("unexpected conversation patch response: %+v", updated)
 	}
 
-	body, _ = json.Marshal(map[string]any{"title": strings.Repeat("会", maxConversationTitleRunes+1)})
+	body, _ = json.Marshal(map[string]any{"title": strings.Repeat("界", maxConversationTitleRunes+1)})
 	req = httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/conversations/%d", conversation.ID), bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec = httptest.NewRecorder()
@@ -140,7 +140,7 @@ func TestConversationPatchReturnsPinState(t *testing.T) {
 	}
 
 	body, _ = json.Marshal(map[string]any{
-		"agent_key": "mainagent", "title": strings.Repeat("会", maxConversationTitleRunes+1),
+		"agent_key": "mainagent", "title": strings.Repeat("界", maxConversationTitleRunes+1),
 	})
 	req = httptest.NewRequest(http.MethodPost, "/api/conversations", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)

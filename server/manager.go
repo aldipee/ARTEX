@@ -495,7 +495,7 @@ func (m *Manager) SetLLMRecordEnabled(on bool) error {
 }
 
 // NoaCompactionEnabled reports whether the experimental noa context-compression
-// mechanism is on (默认关；settings.noa_compaction). Read per agent run via the
+// mechanism is on (disabled by default; settings.noa_compaction). Read per agent run via the
 // injected resolver, so a toggle takes effect on the next run without rebuild.
 func (m *Manager) NoaCompactionEnabled() bool {
 	return m.pg.GetBool(settingNoaCompaction, false)

@@ -24,7 +24,7 @@ const (
 	deadlineMaxSleep     = 30 * time.Second // longest single sleep (to periodically re-check terminal state)
 )
 
-// ---------- settling 状态 ----------
+// ---------- settling state ----------
 
 func (e *Engine) isSettling(taskID string) bool {
 	v, _ := e.settling.Load(taskID)

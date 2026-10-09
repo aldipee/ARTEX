@@ -110,25 +110,25 @@ func (c webhookChannel) Send(ctx context.Context, cfg map[string]any, m Message)
 		method = http.MethodPost
 	}
 
-	// GET 不带请求体：把内容塞进 query 超出模板能力范围，也不符合 GET 语义，
-	// 所以 GET 只适合「命中即触发钩子」这类接收端。
+	// GET has no request body; putting content in the query is beyond the template's scope and
+	// violates GET semantics. Use GET only for receivers that treat any match as a simple hook.
 	var payload any
 	if method != http.MethodGet {
 		body, err := renderWebhookBody(cfgString(cfg, "body_template"), m)
 		if err != nil {
 			return 0, Permanent(err)
 		}
-		// 模板渲染出的是字符串形式的 JSON，这里转成 json.RawMessage 原样发出，
-		// 避免二次转义把用户精心构造的结构套进一个 JSON 字符串里。
+		// The template produces JSON as a string. Convert it to json.RawMessage so it is sent as-is,
+		// without escaping the user's carefully structured content into a JSON string.
 		if !json.Valid([]byte(body)) {
-			return 0, Permanent(errors.New("请求体模板渲染结果不是合法 JSON"))
+			return 0, Permanent(errors.New("rendered request-body template is not valid JSON"))
 		}
 		payload = json.RawMessage(body)
 	}
 
 	headers := cfgMap(cfg, "headers")
 	if ct := cfgString(cfg, "content_type"); ct != "" {
-		// 允许覆盖，但放在 headers 之后应用，保证显式配置优先。
+		// Allow overrides, but apply them after headers so explicit configuration takes priority.
 		if headers == nil {
 			headers = map[string]string{}
 		}
@@ -137,42 +137,42 @@ func (c webhookChannel) Send(ctx context.Context, cfg map[string]any, m Message)
 	if _, err := doJSON(ctx, method, cfgString(cfg, "url"), headers, payload); err != nil {
 		return 0, err
 	}
-	// 通用 Webhook 不截断正文（接收端是用户自己的服务，体积由 body_template 决定），
-	// 因此整批都算送达。
+	// Generic webhooks do not truncate bodies (the receiver is the user's service and
+	// body_template controls the size), so the whole batch counts as delivered.
 	return len(m.Items), nil
 }
 
-// renderWebhookBody 用用户模板（或默认模板）渲染请求体。
+// renderWebhookBody renders the request body with the user template or the default template.
 func renderWebhookBody(tpl string, m Message) (string, error) {
 	if strings.TrimSpace(tpl) == "" {
 		tpl = webhookDefaultTemplate
 	}
 	t, err := parseWebhookTemplate(tpl)
 	if err != nil {
-		return "", fmt.Errorf("请求体模板语法错误: %w", err)
+		return "", fmt.Errorf("request-body template syntax error: %w", err)
 	}
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, newWebhookTemplateData(m)); err != nil {
-		return "", fmt.Errorf("渲染请求体模板失败: %w", err)
+		return "", fmt.Errorf("failed to render request-body template: %w", err)
 	}
 	return buf.String(), nil
 }
 
-// parseWebhookTemplate 解析模板。
+// parseWebhookTemplate parses the template.
 //
-// missingkey=zero 让缺失的 map 键渲染成零值而不是报错——但本文件的上下文是结构体，
-// 主要作用是让 .Items 为空时 range 不出错。真正需要防的是 .Items 为 nil。
+// missingkey=zero renders missing map keys as zero values instead of errors. The context here
+// is a struct, so this mainly ensures range works when .Items is empty; the actual edge case is nil .Items.
 func parseWebhookTemplate(tpl string) (*template.Template, error) {
 	return template.New("body").Funcs(webhookTemplateFuncs).Option("missingkey=zero").Parse(tpl)
 }
 
-// webhookTemplateFuncs 是暴露给模板的辅助函数。
+// webhookTemplateFuncs are helper functions exposed to templates.
 var webhookTemplateFuncs = template.FuncMap{
-	// json 把任意值序列化成 JSON。
+	// json serializes any value as JSON.
 	//
-	// 这个函数不是锦上添花而是必需的：省去它，用户只能写 {{.Title}} 直接插值，
-	// 而漏洞标题里只要有引号或换行，整段请求体就不再是合法 JSON——接收端会
-	// 拒收，且报错信息指向「JSON 解析失败」，完全联想不到是标题里有个引号。
+	// This is essential: without it, users can only interpolate {{.Title}} directly. A quote or
+	// newline in a finding title would make the request body invalid JSON, causing the receiver to
+	// reject it with a generic JSON parse error that does not point to the title's quote.
 	"json": func(v any) (string, error) {
 		raw, err := json.Marshal(v)
 		if err != nil {
@@ -180,7 +180,7 @@ var webhookTemplateFuncs = template.FuncMap{
 		}
 		return string(raw), nil
 	},
-	// jsons 用于把 JSON 片段嵌进另一段 JSON 字符串值内部（做一层字符串转义）。
+	// jsons embeds a JSON fragment inside another JSON string value (one layer of string escaping).
 	"jsons": func(v any) (string, error) {
 		raw, err := json.Marshal(v)
 		if err != nil {
@@ -190,7 +190,7 @@ var webhookTemplateFuncs = template.FuncMap{
 		if err != nil {
 			return "", err
 		}
-		// 去掉外层引号：调用方自己决定要不要加引号。
+		// Remove the outer quotes so the caller can decide whether to add them.
 		return string(quoted[1 : len(quoted)-1]), nil
 	},
 }

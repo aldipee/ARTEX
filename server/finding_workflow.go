@@ -117,26 +117,26 @@ func objectProperty(parent map[string]any, key string) map[string]any {
 
 func (s *Server) agentFindingTrafficAccess(ctx context.Context, id int64, write bool) error {
 	if id <= 0 {
-		return errors.New("finding_id 必须为独立漏洞记录 ID；不是探索节点 ID")
+		return errors.New("finding_id must be a standalone finding record ID, not an exploration node ID")
 	}
 	f, err := s.m.pg.GetFinding(id)
 	if err != nil {
 		return err
 	}
 	if f == nil {
-		return fmt.Errorf("%w：finding_id=%d。证据工具使用独立漏洞记录 ID，请从 list_task_findings / get_task_node_detail 的 finding_id 字段读取；不要传 id / finding_node_id", db.ErrFindingNotFound, id)
+		return fmt.Errorf("%w: finding_id=%d. Evidence tools require a standalone finding record ID. Read the finding_id field from list_task_findings / get_task_node_detail; do not pass id / finding_node_id", db.ErrFindingNotFound, id)
 	}
 	if ri := agent.RunInfoFrom(ctx); ri.TaskID > 0 {
 		task := s.m.ResolveTask(strconv.FormatInt(ri.TaskID, 10))
 		if task == nil {
-			return errors.New("任务不存在")
+			return errors.New("task does not exist")
 		}
 		_, inherited, allowed := findingProvenanceInTask(task, f.TaskID)
 		if !allowed {
-			return errors.New("当前任务不可读取该漏洞")
+			return errors.New("this task cannot read that finding")
 		}
 		if write && inherited {
-			return errors.New("继承漏洞的流量证据只读，请到来源任务修改")
+			return errors.New("traffic evidence for inherited findings is read-only; edit it in the source task")
 		}
 	}
 	return nil

@@ -220,7 +220,7 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !verifyJWT(extractToken(r), s.jwtKey) {
-		writeErr(w, 401, "未授权")
+		writeErr(w, 401, "unauthorized")
 		return
 	}
 	var req struct {

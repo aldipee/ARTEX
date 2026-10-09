@@ -73,8 +73,8 @@ func TestValidatePassword(t *testing.T) {
 		{"empty", "", true},
 		{"seven chars", "1234567", true},
 		{"eight chars", "12345678", false},
-		{"eight CJK chars counted as chars not bytes", "密码密码密码密码", false},
-		{"three CJK chars reach 9 bytes but only 3 chars", "密码强", true},
+		{"eight CJK chars counted as chars not bytes", strings.Repeat("界", 8), false},
+		{"three CJK chars reach 9 bytes but only 3 chars", strings.Repeat("界", 3), true},
 		{"72 bytes", strings.Repeat("a", 72), false},
 		{"73 bytes exceeds bcrypt limit", strings.Repeat("a", 73), true},
 	} {

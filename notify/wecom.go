@@ -11,7 +11,7 @@ import (
 // It is the tightest limit across all six channels, and the main reason TruncateBytes exists.
 const weComMarkdownLimit = 4096
 
-// weComChannel implements the WeCom (企业微信) group bot.
+// weComChannel implements a WeCom group bot.
 //
 // Platform characteristics:
 //   - Auth solely via the key on the URL, no signing supported — so the webhook address itself is the entire credential.

@@ -207,7 +207,7 @@ func TestChatMentionWorkerReceivesServerDetails(t *testing.T) {
 }
 
 func TestChatMentionBoundedJSON(t *testing.T) {
-	long := strings.Repeat("中文", 10000)
+	long := strings.Repeat("界", 10000)
 	items := make([]any, 102)
 	for i := range items {
 		items[i] = long
@@ -286,7 +286,7 @@ func TestChatMentionCatalogAndContext(t *testing.T) {
 			t.Fatalf("search %s: %d %s", kind, w.Code, w.Body)
 		}
 	}
-	for _, query := range []string{"kind=unsupported", "q=" + url.QueryEscape(strings.Repeat("字", 201))} {
+	for _, query := range []string{"kind=unsupported", "q=" + url.QueryEscape(strings.Repeat("界", 201))} {
 		w := httptest.NewRecorder()
 		s.searchChatMentions(w, httptest.NewRequest("GET", "/api/chat/mentions?"+query, nil))
 		if w.Code != 400 {

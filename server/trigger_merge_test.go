@@ -9,13 +9,13 @@ import (
 // fix: the task-context header (description + goal) is rendered ONCE per task, no
 // matter how many same-task fires are merged.
 
-const longGoal = "拿到题目 f2-05 的受保护 flag 并通过 submit_flag 提交；本题密文已高度收敛，flag 只能由二进制内嵌数据派生……" // 代表那段几千字的继承事实
+const longGoal = "Recover the protected flag for challenge f2-05 and submit it with submit_flag; the ciphertext is highly constrained, and the flag can only be derived from embedded binary data…" // Represents a multi-thousand-character inherited fact.
 
 func sameTaskFires(n int) []triggeredRun {
 	items := make([]triggeredRun, n)
 	for i := range items {
 		items[i] = triggeredRun{
-			agentKey: "tec_benchmark", taskID: 72, taskDesc: "f2-05 逆向", taskGoal: longGoal,
+			agentKey: "tec_benchmark", taskID: 72, taskDesc: "f2-05 reverse engineering", taskGoal: longGoal,
 			message: "【本次由工具调用触发】\n工具: submit_flag\n入参: {...}\n返回: {correct:false}", mergeable: true,
 		}
 	}
@@ -90,9 +90,9 @@ func TestTaskContextHeaderEmptyForIntervalFire(t *testing.T) {
 }
 
 func TestTaskContextHeaderTruncatesLongGoal(t *testing.T) {
-	huge := strings.Repeat("很", 5000)
+	huge := strings.Repeat("界", 5000)
 	h := taskContextHeader(72, "d", huge)
-	if len([]rune(h)) > 800 { // 200 desc + 500 goal + 截断标记/装饰，远小于 5000
+	if len([]rune(h)) > 800 { // 200 desc + 500 goal + truncation marker/decorations, well under 5000.
 		t.Fatalf("header should be bounded even for a huge goal, got %d runes", len([]rune(h)))
 	}
 }

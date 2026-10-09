@@ -12,7 +12,7 @@ import (
 
 const FindingRetestAgentKey = "retester"
 
-var ErrRetestNotRunning = errors.New("本次复测已结束或尚未开始，请从漏洞详情发起新的复测")
+var ErrRetestNotRunning = errors.New("this retest has ended or has not started; start a new retest from the finding details")
 
 // FindingRetest is an immutable historical test once its conversation turn ends.
 // Snapshot is only loaded for the agent, never sent with the history list.
@@ -82,7 +82,7 @@ func (d *DB) CreateFindingRetest(ctx context.Context, findingID int64, notes str
 	defer tx.Rollback()
 	var title string
 	var snapshot []byte
-	err = tx.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(f.name,''), NULLIF(f.vulnclass,''), '未分类'),
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(f.name,''), NULLIF(f.vulnclass,''), 'Uncategorized'),
 	jsonb_build_object('finding', to_jsonb(f),
 	 'assets', COALESCE((SELECT jsonb_agg(to_jsonb(a)) FROM assets a WHERE f.asset_ids @> to_jsonb(ARRAY[a.id])), '[]'::jsonb),
 	 'constraints', COALESCE((SELECT jsonb_agg(to_jsonb(c)) FROM task_constraints c JOIN tasks t ON t.exploration_id=c.exploration_id WHERE t.id=f.task_id), '[]'::jsonb))
@@ -102,7 +102,7 @@ func (d *DB) CreateFindingRetest(ctx context.Context, findingID int64, notes str
 		title = string(runes[:100])
 	}
 	c, err := scanConv(tx.QueryRowContext(ctx, `INSERT INTO conversations(agent_key,title) VALUES ($1,$2) RETURNING `+convCols,
-		FindingRetestAgentKey, fmt.Sprintf("复测 #%d · %s", findingID, title)))
+		FindingRetestAgentKey, fmt.Sprintf("Vulnerability Retest #%d · %s", findingID, title)))
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -160,8 +160,8 @@ func (d *DB) FindingRetestForConversation(ctx context.Context, conversationID in
 // FailPendingRetestForConversation seals a conversation's unfinished retest when
 // the runner could not even load it — the retest ID is unknown on that path, so
 // the conversation ID is the only handle. Without it a transient read error
-// leaves the row 'pending' forever: the findings list keeps showing 复测中 and
-// every later 发起复测 is deduped against a run that is not happening, with only
+// leaves the row 'pending' forever: the findings list keeps showing "Retest in progress" and
+// every later retest request is deduplicated against a run that is not happening, with only
 // a process restart (RecoverFindingRetests) able to clear it.
 func (d *DB) FailPendingRetestForConversation(conversationID int64, reason string) error {
 	_, err := d.Exec(`UPDATE finding_retests SET status='failed', error=$2, finished_at=now()
@@ -182,14 +182,14 @@ func (d *DB) StartFindingRetest(ctx context.Context, id int64) (bool, error) {
 // runtime conversation. Identical retries are safe; a second verdict is refused.
 func (d *DB) RecordFindingRetestResult(ctx context.Context, conversationID int64, verdict, summary, evidence string) error {
 	if verdict != "reproduced" && verdict != "fixed" && verdict != "inconclusive" {
-		return errors.New("verdict 必须为 reproduced / fixed / inconclusive")
+		return errors.New("verdict must be reproduced / fixed / inconclusive")
 	}
 	summary, evidence = strings.TrimSpace(summary), strings.TrimSpace(evidence)
 	if summary == "" || evidence == "" {
-		return errors.New("summary 与 evidence 不能为空；无法确认时说明实际检查及阻塞原因")
+		return errors.New("summary and evidence cannot be empty; if inconclusive, describe checks performed and the blocking reason")
 	}
 	if len(summary) > 16000 || len(evidence) > 128000 {
-		return errors.New("复测结论过长（summary ≤ 16KB，evidence ≤ 128KB）")
+		return errors.New("retest result is too long (summary ≤ 16KB, evidence ≤ 128KB)")
 	}
 	res, err := d.ExecContext(ctx, `UPDATE finding_retests SET verdict=$2,summary=$3,evidence=$4
 	WHERE conversation_id=$1 AND status='running' AND (verdict='' OR (verdict=$2 AND summary=$3 AND evidence=$4))`, conversationID, verdict, summary, evidence)
@@ -228,7 +228,7 @@ func (d *DB) FinishFindingRetest(id int64, status, reason string) error {
 	var finalStatus, verdict string
 	err = tx.QueryRow(`UPDATE finding_retests SET
 	status=CASE WHEN $2='completed' AND verdict='' THEN 'failed' ELSE $2 END,
-	error=CASE WHEN $2='completed' AND verdict='' THEN 'Agent 未保存复测结论，请查看会话后重新复测' ELSE $3 END,
+error=CASE WHEN $2='completed' AND verdict='' THEN 'Agent did not save a retest result; review the conversation and retest again' ELSE $3 END,
 	finished_at=now() WHERE id=$1 AND status IN ('pending','running') RETURNING status,verdict`, id, status, reason).Scan(&finalStatus, &verdict)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil // A replay must not overwrite a later manual triage decision.
@@ -237,15 +237,14 @@ func (d *DB) FinishFindingRetest(id int64, status, reason string) error {
 		return err
 	}
 	if finalStatus == "completed" && verdict == "fixed" {
-		// 走带通知的版本，与人工在详情页改状态共用同一套语义。
-		//
-		// 此前这里是裸的 UPDATE：复测判「已修复」时状态确实变了，但配了
-		// on_status_change 的渠道完全收不到推送——状态在界面上悄悄变了，
-		// 运维要打开平台才知道。状态更新与推送事件必须一起落库，
-		// SetFindingStatusTx 内部处理了「状态没变就不登记」等细节。
-		// 用 context.Background()：本函数整条都是无 ctx 的旧风格（d.Begin()/
-		// tx.QueryRow/tx.Exec），没有可传递的取消信号，硬加一个 ctx 参数会
-		// 牵动 server 侧调用点与多处测试，超出本次改动的范围。
+		// Use the notifying version so this shares the same semantics as a status change made
+		// manually on the detail page. Previously this was a bare UPDATE: a retest could mark a
+		// finding fixed without notifying channels configured for on_status_change. The status
+		// appeared to change silently until an operator opened the platform. Persist the status
+		// update and notification event together; SetFindingStatusTx handles unchanged statuses.
+		// Use context.Background(): this function uses the older no-context style throughout
+		// (d.Begin()/tx.QueryRow/tx.Exec) and has no cancellation signal to pass. Adding a context
+		// parameter would affect server call sites and several tests beyond this change.
 		if _, _, _, _, err := SetFindingStatusTx(context.Background(), tx, findingID, FindingFixed); err != nil {
 			return err
 		}
@@ -254,6 +253,6 @@ func (d *DB) FinishFindingRetest(id int64, status, reason string) error {
 }
 
 func (d *DB) RecoverFindingRetests() error {
-	_, err := d.Exec(`UPDATE finding_retests SET status='stopped', error='服务重启，复测已中断，请重新发起', finished_at=now() WHERE status IN ('pending','running')`)
+	_, err := d.Exec(`UPDATE finding_retests SET status='stopped', error='Service restarted; retest was interrupted. Start a new retest.', finished_at=now() WHERE status IN ('pending','running')`)
 	return err
 }
