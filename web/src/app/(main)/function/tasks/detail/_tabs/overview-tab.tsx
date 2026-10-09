@@ -466,7 +466,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <Input
               className="h-7 min-w-56 flex-1 text-sm"
-              placeholder="Add a goal, e.g. \"gain unauthorized access to an admin account\""
+              placeholder={'Add a goal, e.g. "gain unauthorized access to an admin account"'}
               value={goalText}
               onChange={(e) => setGoalText(e.target.value)}
               onKeyDown={(e) => {
@@ -597,7 +597,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
             </NativeSelect>
             <Input
               className="h-7 min-w-56 flex-1 text-sm"
-              placeholder="An operation constraint, e.g. \"only test the current port, don't scan other ports\""
+              placeholder={'An operation constraint, e.g. "only test the current port, don\'t scan other ports"'}
               value={conText}
               onChange={(e) => setConText(e.target.value)}
               onKeyDown={(e) => {

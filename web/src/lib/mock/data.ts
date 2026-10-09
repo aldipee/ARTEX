@@ -4167,7 +4167,7 @@ export function llmRecordDetail(id: number, records = llmRecords) {
     request_body: JSON.stringify(
       {
         model: item.model,
-        system: "You are the "executor" of an authorized penetration-testing system… (truncated)",
+        system: "You are the 'executor' of an authorized penetration-testing system… (truncated)",
         messages: [{ role: "user", content: "Start executing this intent from the system prompt: do only that, produce only facts, and stop when done." }],
         tools: ["bash", "insert_assets", "record_fact", "report_finding"],
       },
@@ -4192,7 +4192,7 @@ export function llmRecordDetail(id: number, records = llmRecords) {
       max_tokens: 8192,
       stream: true,
       system: [
-        { type: "text", text: "You are the "executor" of an authorized penetration-testing system… (truncated)", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "You are the 'executor' of an authorized penetration-testing system… (truncated)", cache_control: { type: "ephemeral" } },
       ],
       messages: [{ role: "user", content: "Start executing this intent from the system prompt: do only that, produce only facts, and stop when done." }],
       tools: [
