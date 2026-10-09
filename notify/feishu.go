@@ -37,10 +37,10 @@ func (feishuChannel) DestinationKeys() []string { return []string{"webhook"} }
 func (feishuChannel) Validate(cfg map[string]any) error {
 	hook := cfgString(cfg, "webhook")
 	if hook == "" {
-		return errors.New("缺少 Webhook 地址")
+		return errors.New("Webhook address is missing")
 	}
 	if err := validateHTTPURL(hook); err != nil {
-		return fmt.Errorf("Webhook 地址无效: %w", err)
+		return fmt.Errorf("invalid Webhook address: %w", err)
 	}
 	return nil
 }
